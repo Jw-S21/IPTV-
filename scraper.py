@@ -1,38 +1,41 @@
-import cloudscraper
+import requests
 import re
 
 # لينك المسلسل الذي أرسلته للتجربة
-TEST_URL = "https://asd.pics/selary/%d9%85%d8%b3%d9%84%d8%b3%d9%84-%d9%87%d9%8a-%d9%83%d9%8a%d9%85%d9%8a%d8%a7/"
+TARGET_URL = "https://asd.pics/selary/%d9%85%d8%b3%d9%84%d8%b3%d9%84-%d9%87%d9%8a-%d9%83%d9%8ي%d9%85%d9%8a%d8%a7/"
 
 def scrape():
-    # استخدام cloudscraper لتجاوز حماية الموقع
-    scraper = cloudscraper.create_scraper()
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Referer': 'https://asd.pics/'
+    }
     
     try:
-        print(f"جاري فحص المسلسل: {TEST_URL}")
-        response = scraper.get(TEST_URL, timeout=20)
+        print(f"جاري فحص الصفحة: {TARGET_URL}")
+        response = requests.get(TARGET_URL, headers=headers, timeout=20)
+        
+        # البحث عن أي رابط يحتوي على boutique وينتهي بـ mp4
+        # استخدمنا بحثاً واسعاً جداً هنا لتجاوز أي حماية
+        links = re.findall(r'(https?://[^\s"\'<>]+cdn\.boutique[^\s"\'<>]+video\.mp4)', response.text)
         
         m3u_content = "#EXTM3U\n"
         
-        # البحث عن روابط cdn.boutique أو أي روابط فيديو mp4
-        # أضفت بحثاً عن الروابط حتى لو كانت داخل جافا سكريبت
-        video_links = re.findall(r'(https?://[^\s"\'<>]+cdn\.boutique[^\s"\'<>]+video\.mp4)', response.text)
-        
-        if not video_links:
-            # محاولة البحث عن روابط السيرفرات المشهورة التي يضعها الموقع
-            video_links = re.findall(r'(https?://[^\s"\'<>]+(?:\.mp4|\.m3u8))', response.text)
-
-        if video_links:
+        if links:
             # إزالة التكرار
-            unique_links = list(set(video_links))
+            unique_links = list(dict.fromkeys(links))
             for i, link in enumerate(unique_links):
                 m3u_content += f"#EXTINF:-1, الحلقة {i+1}\n{link}\n"
                 print(f"✅ تم العثور على رابط: {link}")
         else:
-            print("❌ لم يتم العثور على روابط فيديو مباشرة في هذه الصفحة.")
-
+            # محاولة أخيرة: البحث عن أي mp4 مباشر في الصفحة
+            alt_links = re.findall(r'(https?://[^\s"\'<> ]+\.mp4)', response.text)
+            for i, link in enumerate(list(dict.fromkeys(alt_links))):
+                if "boutique" in link or "cdn" in link:
+                    m3u_content += f"#EXTINF:-1, فيديو {i+1}\n{link}\n"
+        
         with open("playlist.m3u", "w", encoding="utf-8") as f:
             f.write(m3u_content)
+        print("تم تحديث الملف بنجاح!")
             
     except Exception as e:
         print(f"خطأ: {e}")
