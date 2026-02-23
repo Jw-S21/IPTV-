@@ -1,42 +1,53 @@
 import requests
 import re
+import cloudscraper
 
-# لينك المسلسل الذي أرسلته للتجربة
-TARGET_URL = "https://asd.pics/selary/%d9%85%d8%b3%d9%84%d8%b3%d9%84-%d9%87%d9%8a-%d9%83%d9%8ي%d9%85%d9%8a%d8%a7/"
+# رابط المسلسل الجديد
+TARGET_URL = "https://sflix.film/ar/detail/and-we-forget-what-was-mdblj-ll-rby-qHzpIGACh63?id=2602968303974895304"
 
 def scrape():
+    # استخدام cloudscraper لتجاوز حماية الموقع الأساسية
+    scraper = cloudscraper.create_scraper()
+    
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Referer': 'https://asd.pics/'
+        'Referer': 'https://sflix.film/'
     }
-    
+
     try:
-        print(f"جاري فحص الصفحة: {TARGET_URL}")
-        response = requests.get(TARGET_URL, headers=headers, timeout=20)
+        print(f"جاري محاولة فحص الموقع الجديد: {TARGET_URL}")
+        response = scraper.get(TARGET_URL, headers=headers, timeout=30)
         
-        # البحث عن أي رابط يحتوي على boutique وينتهي بـ mp4
-        # استخدمنا بحثاً واسعاً جداً هنا لتجاوز أي حماية
-        links = re.findall(r'(https?://[^\s"\'<>]+cdn\.boutique[^\s"\'<>]+video\.mp4)', response.text)
+        # المواقع دي غالباً بتستخدم روابط بث تنتهي بـ .m3u8
+        # إحنا بندور على أي رابط فيديو (mp4) أو رابط بث (m3u8) مخفي في الكود
+        video_patterns = [
+            r'(https?://[^\s"\'<> ]+\.m3u8[^\s"\'<> ]*)',
+            r'(https?://[^\s"\'<> ]+\.mp4[^\s"\'<> ]*)',
+            r'(https?://[^\s"\'<> ]+cdn[^\s"\'<> ]+)'
+        ]
         
+        all_found_links = []
+        for pattern in video_patterns:
+            matches = re.findall(pattern, response.text)
+            all_found_links.extend(matches)
+
         m3u_content = "#EXTM3U\n"
         
-        if links:
-            # إزالة التكرار
-            unique_links = list(dict.fromkeys(links))
+        if all_found_links:
+            unique_links = list(dict.fromkeys(all_found_links))
             for i, link in enumerate(unique_links):
-                m3u_content += f"#EXTINF:-1, الحلقة {i+1}\n{link}\n"
-                print(f"✅ تم العثور على رابط: {link}")
+                # تنظيف الرابط من أي رموز تشفير زائدة
+                clean_link = link.replace('\\', '')
+                m3u_content += f"#EXTINF:-1, سيرفر {i+1}\n{clean_link}\n"
+                print(f"✅ تم العثور على: {clean_link}")
         else:
-            # محاولة أخيرة: البحث عن أي mp4 مباشر في الصفحة
-            alt_links = re.findall(r'(https?://[^\s"\'<> ]+\.mp4)', response.text)
-            for i, link in enumerate(list(dict.fromkeys(alt_links))):
-                if "boutique" in link or "cdn" in link:
-                    m3u_content += f"#EXTINF:-1, فيديو {i+1}\n{link}\n"
-        
+            print("❌ الموقع ده محمي جداً، الروابط مش ظاهرة في السورس.")
+
         with open("playlist.m3u", "w", encoding="utf-8") as f:
             f.write(m3u_content)
-        print("تم تحديث الملف بنجاح!")
-            
+        
+        print("تمت العملية بنجاح.")
+
     except Exception as e:
         print(f"خطأ: {e}")
 
