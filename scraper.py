@@ -1,71 +1,63 @@
 import requests
-from bs4 import BeautifulSoup
 import re
-import time
+import base64
 
-# الرابط الأساسي الذي يحتوي على قائمة المسلسلات
+# الرابط الأساسي
 BASE_URL = "https://asd.pics/category/%d9%85%d8%b3%d9%84%d8%b3%d9%84%d8%a7%d8%aa-%d8%b1%d9%85%d8%b6%d8%a7%d9%86/ramadan-series-2026/"
 
 def scrape():
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Referer': 'https://asd.pics/'
+        'Referer': 'https://asd.pics/',
+        'Accept-Language': 'ar,en-US;q=0.7,en;q=0.3'
     }
+    
     session = requests.Session()
     
     try:
-        print("1. الدخول لصفحة تصنيف رمضان 2026...")
+        print("جاري سحب قائمة المسلسلات...")
         response = session.get(BASE_URL, headers=headers, timeout=20)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # استخراج روابط المسلسلات الفردية من صفحة التصنيف
-        # نبحث عن المقالات أو الروابط التي تؤدي لصفحات المسلسلات
-        articles = soup.find_all('article')
-        series_links = []
-        for art in articles:
-            a_tag = art.find('a', href=True)
-            if a_tag:
-                series_links.append((a_tag.get('title') or "مسلسل", a_tag['href']))
-        
-        print(f"تم العثور على {len(series_links)} مسلسل. نبدأ الغوص في الحلقات...")
+        # استخراج كافة الروابط التي قد تكون لمسلسلات
+        potential_links = re.findall(r'https://asd\.pics/[^/\s"\'<>]+/', response.text)
+        series_pages = list(set([l for l in potential_links if len(l) > 35 and "category" not in l]))
 
         m3u_content = "#EXTM3U\n"
-        
-        for title, series_url in series_links:
-            try:
-                print(f"جاري فحص: {title}...")
-                # الدخول لصفحة المسلسل/الحلقة
-                res = session.get(series_url, headers=headers, timeout=15)
-                
-                # البحث عن رابط الفيديو المباشر داخل الصفحة
-                # نركز على النمط الذي اكتشفته أنت في الـ Elements
-                video_match = re.search(r'src="(https?://[^\s"\'<>]+cdn\.boutique[^\s"\'<>]+video\.mp4)"', res.text)
-                
-                if video_match:
-                    video_url = video_match.group(1)
-                    m3u_content += f"#EXTINF:-1, {title}\n{video_url}\n"
-                    print(f"✅ تم استخراج الرابط لـ {title}")
-                else:
-                    # محاولة ثانية ببحث أوسع عن أي mp4
-                    alt_match = re.search(r'(https?://[^\s"\'<>]+video\.mp4)', res.text)
-                    if alt_match:
-                        video_url = alt_match.group(1)
-                        m3u_content += f"#EXTINF:-1, {title}\n{video_url}\n"
-                
-                # ننتظر ثانية بين كل مسلسل لتجنب الحظر
-                time.sleep(1)
-                
-            except Exception as e:
-                print(f"فشل استخراج {title}: {e}")
-                continue
+        count = 0
 
-        # حفظ الملف النهائي
+        for pg in series_pages:
+            try:
+                res = session.get(pg, headers=headers, timeout=15)
+                # 1. البحث عن رابط مباشر (mp4/m3u8)
+                video_url = None
+                match = re.search(r'(https?://[^\s"\'<>]+(?:cdn\.boutique|video\.mp4|playlist\.m3u8)[^\s"\'<> ]*)', res.text)
+                
+                if match:
+                    video_url = match.group(1).replace('\\', '') # تنظيف الرابط من علامات الهروب
+                
+                # 2. إذا لم يجد، يبحث عن روابط مشفرة (بصيغة Base64) أحياناً يستخدمونها لإخفاء الرابط
+                if not video_url:
+                    b64_matches = re.findall(r'aHR0cHM6Ly[A-Za-z0-9+/=]+', res.text)
+                    for b in b64_matches:
+                        try:
+                            decoded = base64.b64decode(b).decode('utf-8')
+                            if "cdn.boutique" in decoded or ".mp4" in decoded:
+                                video_url = decoded
+                                break
+                        except: continue
+
+                if video_url:
+                    title = pg.strip('/').split('/')[-1].replace('-', ' ')
+                    m3u_content += f"#EXTINF:-1, {title}\n{video_url}\n"
+                    count += 1
+                    print(f"✅ وجدنا رابطاً: {title}")
+            except: continue
+
         with open("playlist.m3u", "w", encoding="utf-8") as f:
             f.write(m3u_content)
-        print("--- تم تحديث قائمة M3U بنجاح ---")
+        print(f"تم بنجاح! الروابط المستخرجة: {count}")
 
     except Exception as e:
-        print(f"خطأ في الاتصال بالموقع: {e}")
+        print(f"خطأ: {e}")
 
 if __name__ == "__main__":
     scrape()
